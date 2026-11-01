@@ -23,10 +23,28 @@ def fixtures(date):
 
 @st.cache_data(ttl=3600)
 def recent(team, before_date):
-    # Pull completed games preceding the requested date; filter out games after the date.
-    data=api('/fixtures',{'team':team,'last':30,'status':'FT','timezone':'Europe/Bucharest'})
-    data=[x for x in data if x['fixture']['date'][:10] < before_date]
-    return sorted(data,key=lambda x:x['fixture']['date'],reverse=True)[:12]
+    from datetime import date, timedelta
+
+    end = date.fromisoformat(before_date) - timedelta(days=1)
+    start = end - timedelta(days=89)
+
+    data = api('/fixtures', {
+        'team': team,
+        'from': start.isoformat(),
+        'to': end.isoformat(),
+        'status': 'FT'
+    })
+
+    data = [
+        x for x in data
+        if x['fixture']['date'][:10] < before_date
+    ]
+
+    return sorted(
+        data,
+        key=lambda x: x['fixture']['date'],
+        reverse=True
+    )[:30]
 
 def stats(matches, team):
     if len(matches)<8: return None
