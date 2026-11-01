@@ -1,101 +1,140 @@
-import os, math, datetime
-import requests
+import math
+from datetime import date, timedelta
+
 import pandas as pd
+import requests
 import streamlit as st
 
-st.set_page_config(page_title='Football Analyzer', page_icon='⚽', layout='wide')
-st.title('⚽ Football Analyzer — GG & Peste 2,5')
-st.caption('Estimări statistice experimentale, nu garanții sau recomandări de pariere.')
-KEY = os.getenv('API_FOOTBALL_KEY', '')
-BASE = 'https://v3.football.api-sports.io'
+st.set_page_config(page_title="Football Analyzer", page_icon="⚽", layout="wide")
+st.title("⚽ Football Analyzer — GG & Peste 2,5")
+st.caption("Estimări experimentale bazate pe rezultate istorice. Nu reprezintă garanții de câștig.")
 
-def api(path, params):
-    r=requests.get(BASE+path,headers={'x-apisports-key':KEY},params=params,timeout=25)
-    r.raise_for_status()
-    payload=r.json()
-    if payload.get('errors'):
-        raise RuntimeError(str(payload['errors']))
-    return payload.get('response',[])
+BASE = "https://api.football-data.org/v4"
+try:
+    KEY = st.secrets.get("FOOTBALL_DATA_KEY", "")
+except Exception:
+    KEY = ""
 
-@st.cache_data(ttl=1800)
-def fixtures(date):
-    return api('/fixtures',{'date':date,'timezone':'Europe/Bucharest'})
+
+def api(path, params=None):
+    response = requests.get(
+        BASE + path,
+        headers={"X-Auth-Token": KEY},
+        params=params or {},
+        timeout=25,
+    )
+    if response.status_code == 429:
+        raise RuntimeError("Prea multe cereri către API. Așteaptă un minut și încearcă din nou.")
+    if response.status_code in (401, 403):
+        raise RuntimeError("Cheia API nu este validă sau competiția nu este inclusă în abonament.")
+    response.raise_for_status()
+    return response.json()
+
+
+@st.cache_data(ttl=86400)
+def competitions():
+    return api("/competitions").get("competitions", [])
+
 
 @st.cache_data(ttl=3600)
-def recent(team, before_date):
-    from datetime import date, timedelta
+def matches_for_competition(code, start, end):
+    return api(
+        f"/competitions/{code}/matches",
+        {"dateFrom": start.isoformat(), "dateTo": end.isoformat()},
+    ).get("matches", [])
 
-    end = date.fromisoformat(before_date) - timedelta(days=1)
-    start = end - timedelta(days=89)
 
-    data = api('/fixtures', {
-        'team': team,
-        'from': start.isoformat(),
-        'to': end.isoformat(),
-        'status': 'FT'
-    })
+@st.cache_data(ttl=3600)
+def recent_matches(code, before):
+    # O singură interogare per competiție; rezultatele sunt reutilizate pentru toate echipele.
+    start = before - timedelta(days=365)
+    end = before - timedelta(days=1)
+    matches = matches_for_competition(code, start, end)
+    return [m for m in matches if m.get("status") == "FINISHED" and
+            m.get("score", {}).get("fullTime", {}).get("home") is not None and
+            m.get("score", {}).get("fullTime", {}).get("away") is not None]
 
-    data = [
-        x for x in data
-        if x['fixture']['date'][:10] < before_date
-    ]
 
-    return sorted(
-        data,
-        key=lambda x: x['fixture']['date'],
-        reverse=True
-    )[:30]
+def team_stats(matches, team_id, before, n=12):
+    selected = [m for m in matches if m.get("utcDate", "")[:10] < before.isoformat()
+                and team_id in (m.get("homeTeam", {}).get("id"), m.get("awayTeam", {}).get("id"))]
+    selected.sort(key=lambda m: m.get("utcDate", ""), reverse=True)
+    selected = selected[:n]
+    if len(selected) < 8:
+        return None
+    scored, conceded = [], []
+    for m in selected:
+        home = m["homeTeam"]["id"] == team_id
+        h = m["score"]["fullTime"]["home"]
+        a = m["score"]["fullTime"]["away"]
+        scored.append(h if home else a)
+        conceded.append(a if home else h)
+    return sum(scored) / len(scored), sum(conceded) / len(conceded)
 
-def stats(matches, team):
-    if len(matches)<8: return None
-    gf=[];ga=[]
-    for m in matches:
-        home=m['teams']['home']['id']==team
-        a=m['goals']['home'] if home else m['goals']['away']
-        b=m['goals']['away'] if home else m['goals']['home']
-        if a is not None and b is not None:gf.append(a);ga.append(b)
-    if len(gf)<8:return None
-    return sum(gf)/len(gf),sum(ga)/len(ga)
 
-def poisson(k,lam):
-    return math.exp(-lam)*lam**k/math.factorial(k)
+def estimate(home, away):
+    lam_home = max(0.15, min(4.0, (home[0] + away[1]) / 2))
+    lam_away = max(0.15, min(4.0, (away[0] + home[1]) / 2))
+    gg = (1 - math.exp(-lam_home)) * (1 - math.exp(-lam_away))
+    total = lam_home + lam_away
+    over25 = 1 - math.exp(-total) * (1 + total + total**2 / 2)
+    return gg, over25
 
-def predict(h,a):
-    # Baseline independent Poisson model, intentionally simple and not calibrated.
-    lh=max(.15,min(4.0,(h[0]+a[1])/2))
-    la=max(.15,min(4.0,(a[0]+h[1])/2))
-    pgg=(1-math.exp(-lh))*(1-math.exp(-la))
-    total=lh+la
-    pover=1-math.exp(-total)*(1+total+total**2/2)
-    return pgg,pover
 
-selected=st.date_input('Data meciurilor (ora României)',datetime.date.today())
-min_p=st.slider('Prag minim estimat (%)',50,90,60)
-limit=st.slider('Număr maxim de meciuri analizate',10,150,50,10)
-st.info('Versiunea 0.1 folosește un model Poisson simplu. Nu include încă xG, accidentări, cote sau validare istorică. Estimările NU sunt calibrate.')
+match_date = st.date_input("Data meciurilor", value=date.today())
+min_probability = st.slider("Probabilitatea minimă estimată (%)", 40, 90, 55)
+max_matches = st.slider("Număr maxim de selecții", 5, 50, 20)
+st.info("Model Poisson simplu, fără xG, accidentări, cote sau calibrare istorică. Nu folosi estimările ca probabilități validate.")
+
 if not KEY:
-    st.warning('Configurează API_FOOTBALL_KEY în variabilele de mediu ale serverului. Nu introduce cheia într-un fișier public.')
-elif st.button('Analizează meciurile',type='primary'):
+    st.warning("Adaugă FOOTBALL_DATA_KEY în Streamlit → Manage app → Settings → Secrets.")
+elif st.button("Analizează meciurile", type="primary"):
     try:
-        allgames=fixtures(selected.isoformat())
-        upcoming=[x for x in allgames if x['fixture']['status']['short']=='NS'][:limit]
-        rows=[]
-        bar=st.progress(0)
-        for i,g in enumerate(upcoming):
-            hid=g['teams']['home']['id']; aid=g['teams']['away']['id']
-            h=stats(recent(hid,selected.isoformat()),hid)
-            a=stats(recent(aid,selected.isoformat()),aid)
-            if h and a:
-                gg,over=predict(h,a)
-                for market,p in [('GG - DA',gg),('Peste 2,5',over)]:
-                    if p*100>=min_p:
-                        rows.append({'Ora':g['fixture']['date'][11:16], 'Campionat':g['league']['name'], 'Meci':g['teams']['home']['name']+' – '+g['teams']['away']['name'],'Piață':market,'Probabilitate model (%)':round(p*100,1),'ID meci':g['fixture']['id']})
-            bar.progress((i+1)/max(1,len(upcoming)))
+        available = competitions()
+        # API-ul returnează doar competițiile la care contul are acces.
+        selected = [c for c in available if c.get("type") == "LEAGUE" and c.get("code")]
+        rows = []
+        checked = 0
+        progress = st.progress(0)
+        for i, comp in enumerate(selected):
+            code = comp["code"]
+            try:
+                today_matches = matches_for_competition(code, match_date, match_date)
+                upcoming = [m for m in today_matches if m.get("status") in ("SCHEDULED", "TIMED")]
+                if upcoming:
+                    history = recent_matches(code, match_date)
+                    for match in upcoming:
+                        checked += 1
+                        home_team = match.get("homeTeam", {})
+                        away_team = match.get("awayTeam", {})
+                        if not home_team.get("id") or not away_team.get("id"):
+                            continue
+                        h = team_stats(history, home_team["id"], match_date)
+                        a = team_stats(history, away_team["id"], match_date)
+                        if h is None or a is None:
+                            continue
+                        gg, over25 = estimate(h, a)
+                        for market, probability in (("GG – DA", gg), ("Peste 2,5", over25)):
+                            if probability * 100 >= min_probability:
+                                rows.append({
+                                    "Ora (UTC)": match.get("utcDate", "")[11:16],
+                                    "Campionat": comp.get("name", code),
+                                    "Meci": f"{home_team.get('name', '?')} – {away_team.get('name', '?')}",
+                                    "Piață": market,
+                                    "Estimare (%)": round(probability * 100, 1),
+                                })
+            except requests.HTTPError as exc:
+                # O competiție poate să nu fie accesibilă în planul curent.
+                if exc.response is not None and exc.response.status_code in (400, 403, 404):
+                    continue
+                raise
+            progress.progress((i + 1) / max(1, len(selected)))
         if rows:
-            df=pd.DataFrame(rows).sort_values('Probabilitate model (%)',ascending=False)
-            st.dataframe(df.head(20),hide_index=True,use_container_width=True)
-            st.download_button('Descarcă analiza CSV',df.to_csv(index=False).encode('utf-8-sig'),'analiza.csv','text/csv')
-        else:st.warning('Nu există selecții care îndeplinesc criteriile în meciurile analizate.')
-        st.caption(f'Au fost examinate {len(upcoming)} meciuri. Limitările de trafic ale API-ului pot necesita un abonament plătit.')
-    except Exception as e:
-        st.error(f'Nu s-au putut prelua datele: {e}')
+            df = pd.DataFrame(rows).sort_values("Estimare (%)", ascending=False).head(max_matches)
+            st.dataframe(df, use_container_width=True, hide_index=True)
+            st.download_button("Descarcă analiza CSV", df.to_csv(index=False).encode("utf-8-sig"), "analiza_meciuri.csv", "text/csv")
+        else:
+            st.warning("Nu au fost găsite selecții pentru această dată și acest prag. Încearcă altă dată sau un prag mai mic.")
+        st.caption(f"Meciuri programate examinate: {checked}. Orele sunt afișate în UTC.")
+    except Exception as exc:
+        st.error(f"Nu s-au putut prelua datele: {exc}")
