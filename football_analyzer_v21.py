@@ -13,7 +13,30 @@ st.set_page_config(page_title='Football Analyzer V2.1', page_icon='⚽', layout=
 st.title('⚽ Football Analyzer V2.1 — GG & Peste 2,5')
 st.caption('Model Poisson experimental. Procentele nu sunt calibrate sau validate și nu garantează câștiguri.')
 BASE = 'https://api.football-data.org/v4'
+PROPLINE_BASE = 'https://api.prop-line.com/v1'
 try:
+    PROPLINE_KEY = st.secrets.get('PROPLINE_API_KEY', '')
+except Exception:
+    PROPLINE_KEY = ''
+
+def test_propline():
+    if not PROPLINE_KEY:
+        return 'Cheia PropLine lipsește.'
+    try:
+        response = requests.get(
+            f'{PROPLINE_BASE}/sports',
+            headers={'X-API-Key': PROPLINE_KEY},
+            timeout=20
+        )
+        response.raise_for_status()
+        sports = response.json()
+        return f'Conexiune reușită! Competiții disponibile: {len(sports)}'
+    except requests.RequestException as exc:
+        return f'Eroare conexiune PropLine: {exc}'
+if st.button('🔌 Testează conexiunea PropLine'):
+    rezultat = test_propline()
+    st.info(rezultat)
+try: 
     KEY = st.secrets.get('FOOTBALL_DATA_KEY', '')
 except Exception:
     KEY = ''
