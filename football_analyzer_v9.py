@@ -387,7 +387,7 @@ def db_request(method, table, params=None, payload=None, prefer=None):
     url, key = config_value('SUPABASE_URL').rstrip('/'), config_value('SUPABASE_SERVICE_ROLE_KEY')
     if not url or not key:
         raise RuntimeError('Configurează SUPABASE_URL și SUPABASE_SERVICE_ROLE_KEY în Secrets.')
-    headers = {'apikey': key, 'Content-Type': 'application/json'}
+    headers = {'apikey': key, 'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json'}
     if prefer:
         headers['Prefer'] = prefer
     response = requests.request(method, url + '/rest/v1/' + table, headers=headers,
