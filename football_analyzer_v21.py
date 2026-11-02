@@ -102,7 +102,7 @@ def estimate(home, away):
     return gg, over25
 
 match_date = st.date_input('Data meciurilor', value=date.today())
-min_probability = st.slider('Estimare minimă (%)', 30, 90, 55)
+min_probability = st.slider('Estimare minimă (%)', 30, 90, 65)
 max_matches = st.slider('Număr maxim de selecții', 5, 100, 30)
 min_games = st.slider('Minimum meciuri istorice per echipă', 5, 12, 8)
 st.info('Estimările sunt exploratorii: fără xG, cote, accidentări, avantaj teren propriu calibrat sau backtesting.')
