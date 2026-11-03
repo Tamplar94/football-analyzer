@@ -50,6 +50,10 @@ TEAM_ALIASES = {
     'newcastle united': 'newcastle', 'newcastle': 'newcastle',
     'everton': 'everton', 'atalanta bc': 'atalanta', 'atalanta': 'atalanta',
     'parma': 'parma', 'fiorentina': 'fiorentina', 'alverca': 'alverca',
+        'paris saint germain': 'psg', 'paris sg': 'psg', 'psg': 'psg',
+    'birmingham city': 'birmingham', 'birmingham': 'birmingham',
+    'west bromwich albion': 'west bromwich', 'west brom': 'west bromwich',
+    'associacao chapecoense de futebol': 'chapecoense',
 }
 
 def canonical_team(value):
