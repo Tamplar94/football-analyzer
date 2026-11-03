@@ -119,7 +119,6 @@ def bookmaker_prices(event, selection):
                 if selection == 'GG – DA' and key in ('both_teams_to_score', 'btts'):
                     valid = name in ('yes', 'da')
                 elif selection == 'Peste 2,5' and key == 'totals' and name in ('over', 'peste'):
-                        continue
                     try:
                         valid = abs(float(outcome.get('point')) - 2.5) < 0.001
                     except (TypeError, ValueError):
