@@ -194,6 +194,9 @@ def apply_prop_odds(df):
         # Nu asociem cote unui meci dacă există evenimente ambigue.
         if len(candidates) != 1:
             continue
+        # Peste 2,5: doar cotă introdusă manual până la verificarea sursei.
+        if row['Piață'] == 'Peste 2,5':
+            continue
         prices = bookmaker_prices(candidates[0], row['Piață'])
         if prices:
             odd, bookmaker, updated_at = prices[0]
@@ -550,6 +553,7 @@ def main():
                     st.write(skipped)
         if 'v7_selections' in st.session_state:
             st.subheader('Selecții și cote — mai multe case sau completare manuală')
+            st.info('Pentru Peste 2,5, preluarea automată a cotelor este dezactivată temporar. Introdu manual cota verificată la casa de pariuri.')
             if not PROPLINE_KEY:
                 st.info('Adaugă PROPLINE_API_KEY în Streamlit Secrets pentru preluarea cotelor.')
             elif st.button('🔄 Preia cotele de la casele disponibile (PropLine)', type='secondary'):
