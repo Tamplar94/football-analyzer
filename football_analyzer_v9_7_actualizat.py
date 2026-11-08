@@ -570,10 +570,10 @@ def db_request(method, table, params=None, payload=None, prefer=None):
         headers['Prefer'] = prefer
     response = requests.request(method, url + '/rest/v1/' + table, headers=headers,
                                 params=params, json=payload, timeout=35)
-    if not response.ok:
-  raise RuntimeError(
-      f"Supabase HTTP {response.status_code}: {response.text[:1000]}"
-  )
+        if not response.ok:
+            raise RuntimeError(
+            f"Supabase HTTP {response.status_code}: {response.text[:1000]}"
+        )
     return response.json() if response.content else []
 
 def save_predictions(records):
