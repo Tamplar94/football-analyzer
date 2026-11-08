@@ -25,8 +25,9 @@ jobs:
 
       - name: Ruleaza analiza automata
         env:
+          PROPLINE_API_KEY: ${{ secrets.PROPLINE_API_KEY }}
           FOOTBALL_DATA_KEY: ${{ secrets.FOOTBALL_DATA_KEY }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
-          python -c "import football_analyzer_v9 as a; print(a.scheduled_analysis()); print(a.update_final_scores())"
+          python -c "import football_analyzer_v9_7_actualizat as a; print(a.scheduled_analysis()); print(a.update_final_scores())"
