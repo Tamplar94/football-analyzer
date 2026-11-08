@@ -656,7 +656,8 @@ def scheduled_analysis(day=None):
                               'home_team': home_name, 'away_team': away_name,
                               'market': market, 'v4_probability': round(prob*100,2),
                               'v5_probability': round(comparator*100,2),
-                              'recorded_at': datetime.now(timezone.utc).isoformat()}
+                              'recorded_at': datetime.now(timezone.utc).isoformat(),
+'odds': None}
                     if events:
                         odd = verified_pre_match_odds(home_name, away_name, m['utcDate'], market, events)
                         if odd is not None:
