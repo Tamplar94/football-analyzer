@@ -572,7 +572,9 @@ def db_request(method, table, params=None, payload=None, prefer=None):
                                 params=params, json=payload, timeout=35)
         if not response.ok:
             raise RuntimeError(
-            f"Supabase HTTP {response.status_code}: {response.text[:1000]}"
+                f"Supabase HTTP 
+    {response.status_code}: 
+    {response.text[:1000]}"
         )
     return response.json() if response.content else []
 
