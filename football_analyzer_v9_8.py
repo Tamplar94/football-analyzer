@@ -271,25 +271,31 @@ def decimal_price(american):
         pass
     return None
 
-def market_price(event, selection):
-    for book in event.get('bookmakers', []):
-        if book.get('key') != 'superbet_ro':
-            continue
+def market_price(event, selection, with_source=False):
+    """Superbet first, then other available bookmakers; retain actual source."""
+    books = [b for b in event.get('bookmakers', []) if isinstance(b, dict)]
+    books.sort(key=lambda b: (b.get('key') != 'superbet_ro', str(b.get('key', ''))))
+    for book in books:
         for market in book.get('markets', []):
+            if not isinstance(market, dict):
+                continue
             key = market.get('key')
-            if selection == 'GG – DA' and key == 'both_teams_to_score':
-                for outcome in market.get('outcomes', []):
-                    if str(outcome.get('name', '')).strip().lower() in ('yes', 'da'):
-                        return decimal_price(outcome.get('price')), market.get('last_update')
-            if selection == 'Peste 2,5' and key == 'totals':
-                for outcome in market.get('outcomes', []):
+            for outcome in market.get('outcomes', []):
+                if not isinstance(outcome, dict):
+                    continue
+                name = str(outcome.get('name', '')).strip().lower()
+                selected = selection == 'GG – DA' and key == 'both_teams_to_score' and name in ('yes', 'da')
+                if selection == 'Peste 2,5' and key == 'totals' and name == 'over':
                     try:
-                        correct_line = abs(float(outcome.get('point')) - 2.5) < 0.001
+                        selected = abs(float(outcome.get('point')) - 2.5) < 0.001
                     except (TypeError, ValueError):
-                        correct_line = False
-                    if correct_line and str(outcome.get('name', '')).lower() == 'over':
-                        return decimal_price(outcome.get('price')), market.get('last_update')
-    return None, None
+                        selected = False
+                if selected:
+                    price = decimal_price(outcome.get('price'))
+                    if price is not None and 1.01 <= price <= 100:
+                        result = (price, market.get('last_update'), book.get('title') or book.get('key') or 'Necunoscut')
+                        return result if with_source else result[:2]
+    return (None, None, None) if with_source else (None, None)
 
 @st.cache_data(ttl=300, show_spinner=False)
 def prop_soccer_odds():
@@ -302,7 +308,7 @@ def prop_soccer_odds():
     for key in keys:
         try:
             payload = prop_get(f'/sports/{key}/odds',
-                               {'markets': 'both_teams_to_score,totals', 'bookmakers': 'superbet_ro'})
+                               {'markets': 'both_teams_to_score,totals'})
             if isinstance(payload, list):
                 batch = payload
             elif isinstance(payload, dict):
@@ -366,13 +372,14 @@ def prop_diagnostics(df):
                 continue
         near.sort(key=lambda x: (-x[0], x[1]))
         for rank, (score, hours, event) in enumerate(near[:3], 1):
-            books = [b for b in event.get('bookmakers', []) if isinstance(b, dict) and b.get('key') == 'superbet_ro']
-            markets = sorted({m.get('key', '?') for b in books for m in b.get('markets', []) if isinstance(m, dict)})
+            books = [b for b in event.get('bookmakers', []) if isinstance(b, dict)]
+            superbet_books = [b for b in books if b.get('key') == 'superbet_ro']
+            markets = sorted({m.get('key', '?') for b in superbet_books for m in b.get('markets', []) if isinstance(m, dict)})
             report.append({'Meci analizat': row['Meci'], 'Loc': rank,
                            'Eveniment PropLine': f"{event.get('home_team', '?')} – {event.get('away_team', '?')}",
                            'Diferență ore': round(hours, 2), 'Potrivire nume (%)': round(score*100, 1),
                            'Potrivire sigură V9.3': safe_event_match(home, away, kickoff, event) is not None,
-                           'Superbet prezent': bool(books), 'Piețe Superbet': ', '.join(markets) or '(niciuna)',
+                           'Superbet prezent': bool(superbet_books), 'Case disponibile': ', '.join(str(b.get('title') or b.get('key')) for b in books), 'Piețe Superbet': ', '.join(markets) or '(niciuna)',
                            'GG disponibil': market_price(event, 'GG – DA')[0] is not None,
                            'Peste 2,5 disponibil': market_price(event, 'Peste 2,5')[0] is not None,
                            'Motiv': ('Potrivire sigură' if safe_event_match(home, away, kickoff, event) else 'Nume sau oră incompatibile')})
@@ -380,7 +387,7 @@ def prop_diagnostics(df):
             report.append({'Meci analizat': row['Meci'], 'Loc': 0,
                            'Eveniment PropLine': '(niciun eveniment în intervalul ±3 ore)',
                            'Diferență ore': None, 'Potrivire nume (%)': None, 'Potrivire sigură V9.3': False,
-                           'Superbet prezent': False, 'Piețe Superbet': '(niciuna)',
+                           'Superbet prezent': False, 'Case disponibile': '', 'Piețe Superbet': '(niciuna)',
                            'GG disponibil': False, 'Peste 2,5 disponibil': False, 'Motiv': 'Fără eveniment apropiat'})
     return pd.DataFrame(report), len(events), sports_count, errors
 
@@ -407,10 +414,10 @@ def apply_prop_odds(df):
         # Acceptăm doar un singur eveniment verificat, fără asociere ambiguă.
         if len(candidates) != 1:
             continue
-        odds, updated_at = market_price(candidates[0][2], row['Piață'])
+        odds, updated_at, bookmaker = market_price(candidates[0][2], row['Piață'], with_source=True)
         if odds and odds > 1:
             updated.at[i, 'Cotă'] = odds
-            updated.at[i, 'Sursă cotă'] = 'PropLine / Superbet RO'
+            updated.at[i, 'Sursă cotă'] = 'PropLine / ' + str(bookmaker)
             updated.at[i, 'Actualizare cotă UTC'] = updated_at or ''
             matched += 1
     return updated, matched, len(events), count, errors
@@ -648,7 +655,7 @@ def update_final_scores():
     return count
 
 def verified_pre_match_odds(home, away, kickoff, market, events):
-    """Return only uniquely matched Superbet odds observed before kickoff."""
+    """Return uniquely matched bookmaker odds observed before kickoff (Superbet preferred)."""
     start = pd.to_datetime(kickoff, utc=True, errors='coerce')
     now = pd.Timestamp.now(tz='UTC')
     if pd.isna(start) or now >= start:
@@ -779,7 +786,7 @@ def main():
         min_odds = st.number_input('Cotă minimă de urmărit', min_value=1.01, max_value=20.0, value=1.60, step=0.05)
         edge_min = st.slider('Avantaj estimat minim față de cotă (puncte procentuale)', 0, 20, 5)
         max_disagreement = st.slider('Diferență maximă V4–V5 (puncte procentuale)', 0, 30, 12)
-        st.caption('V4 este estimarea principală. V5 este doar comparator. După analiză apasă «Preia cotele Superbet».')
+        st.caption('V4 este estimarea principală. V5 este doar comparator. După analiză preia cotele disponibile.')
         if st.button('Analizează meciurile', type='primary'):
             rows, skipped, excluded, coverage = [], [], [], []
             comps = [c for c in available_comps if c['code'] in chosen_codes]
@@ -878,11 +885,11 @@ def main():
                 with st.expander(f'Competiții omise ({len(skipped)})'):
                     st.write(skipped)
         if 'v7_selections' in st.session_state:
-            st.subheader('Selecții și cote — Superbet automat sau completare manuală')
+            st.subheader('Selecții și cote — case disponibile sau completare manuală')
             if not PROPLINE_KEY:
                 st.info('Adaugă PROPLINE_API_KEY în Streamlit Secrets pentru preluarea cotelor.')
-            elif st.button('🔄 Preia cotele Superbet (PropLine)', type='secondary'):
-                with st.spinner('Caut cote Superbet în campionatele disponibile...'):
+            elif st.button('🔄 Preia cotele disponibile (PropLine)', type='secondary'):
+                with st.spinner('Caut cote la casele disponibile în campionatele acoperite...'):
                     try:
                         found, matched, events_count, sports_count, errors = apply_prop_odds(st.session_state['v7_selections'])
                         st.session_state['v7_selections'] = found
