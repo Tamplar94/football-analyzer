@@ -192,6 +192,37 @@ TEAM_ALIASES = {
     'west ham united': 'west ham', 'west ham': 'west ham',
     'middlesbrough': 'middlesbrough', 'wrexham afc': 'wrexham',
     'cr vasco da gama': 'vasco da gama', 'vasco da gama rj': 'vasco da gama',
+    # V9.8.1: echivalente verificate din diagnosticul PropLine (21.11.2026).
+    # Nu eliminam generic termeni din numele echipelor: evitam confuzii.
+    'cambuur leeuwarden': 'cambuur', 'cambuur': 'cambuur',
+    'feyenoord rotterdam': 'feyenoord', 'feyenoord': 'feyenoord',
+    'sbv excelsior': 'excelsior', 'excelsior rotterdam': 'excelsior',
+    'nec nijmegen': 'nec', 'nec': 'nec',
+    'eintracht frankfurt': 'eintracht frankfurt',
+    'tsg 1899 hoffenheim': 'hoffenheim', 'hoffenheim': 'hoffenheim',
+    'rc strasbourg alsace': 'strasbourg', 'rc strasbourg': 'strasbourg',
+    'stade brestois 29': 'brest', 'stade brest': 'brest',
+    'telstar 1963': 'telstar', 'sc telstar': 'telstar',
+    'chapecoense af': 'chapecoense', 'chapecoense sc': 'chapecoense',
+    'cruzeiro ec': 'cruzeiro', 'cruzeiro mg': 'cruzeiro',
+    'bayer 04 leverkusen': 'bayer leverkusen', 'bayer leverkusen': 'bayer leverkusen',
+    'sc paderborn 07': 'paderborn', 'paderborn': 'paderborn',
+    'real betis balompie': 'real betis', 'real betis': 'real betis',
+    'bolton wanderers': 'bolton', 'bolton': 'bolton',
+    'ss lazio': 'lazio', 'lazio': 'lazio',
+    'us lecce': 'lecce', 'lecce': 'lecce',
+    'ssc napoli': 'napoli', 'napoli': 'napoli',
+    'ec bahia': 'bahia', 'bahia ba': 'bahia',
+    'coritiba fbc': 'coritiba', 'coritiba pr': 'coritiba',
+    'tottenham hotspur': 'tottenham', 'tottenham': 'tottenham',
+    'ipswich town': 'ipswich', 'ipswich': 'ipswich',
+    'rayo vallecano de madrid': 'rayo vallecano', 'vallecano': 'rayo vallecano',
+    'se palmeiras': 'palmeiras', 'palmeiras sp': 'palmeiras',
+    'cr flamengo': 'flamengo', 'flamengo rj': 'flamengo',
+    'parma calcio 1913': 'parma', 'parma calcio': 'parma',
+    'ogc nice': 'nice', 'nice': 'nice',
+    'paris saint germain fc': 'paris saint germain',
+
 }
 
 def norm_team(value):
@@ -751,8 +782,8 @@ def show_automatic_journal():
         st.error(f'Jurnal indisponibil: {exc}')
 
 def main():
-    st.set_page_config(page_title='Football Analyzer V9.8', page_icon='⚽', layout='wide')
-    st.title('⚽ Football Analyzer V9.8 — GG & Peste 2,5')
+    st.set_page_config(page_title='Football Analyzer V9.8.1', page_icon='⚽', layout='wide')
+    st.title('⚽ Football Analyzer V9.8.1 — GG & Peste 2,5')
     st.caption('Toate competițiile disponibile în abonamentul API; catalogul de evenimente PropLine este actualizat automat la preluarea cotelor. Predicțiile nu garantează câștiguri.')
     providers = []
     if KEY:
