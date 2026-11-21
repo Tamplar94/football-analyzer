@@ -663,6 +663,30 @@ def save_predictions(records):
                    records[start:start+100], 'resolution=ignore-duplicates,return=minimal')
     return len(records)
 
+def fill_missing_prematch_odds(events):
+    """Fill only missing odds before kickoff; never rewrite original forecasts or prices."""
+    if not events:
+        return 0
+    now = datetime.now(timezone.utc).isoformat()
+    pending = db_request('GET', 'predictions', {
+        'select': 'match_id,market,home_team,away_team,kickoff_utc',
+        'odds': 'is.null', 'kickoff_utc': 'gt.' + now,
+        'order': 'kickoff_utc.asc', 'limit': '1000'})
+    filled = 0
+    for row in pending:
+        price = verified_pre_match_odds(row['home_team'], row['away_team'],
+                                        row['kickoff_utc'], row['market'], events)
+        if price is None:
+            continue
+        # Conditional PATCH prevents changing a price written by another scheduled run.
+        db_request('PATCH', 'predictions', {
+            'match_id': 'eq.' + str(row['match_id']),
+            'market': 'eq.' + row['market'], 'odds': 'is.null',
+            'kickoff_utc': 'gt.' + datetime.now(timezone.utc).isoformat()
+        }, {'odds': price}, 'return=minimal')
+        filled += 1
+    return filled
+
 def update_final_scores():
     pending = db_request('GET', 'predictions', {'select':'match_id,competition,match_date', 'result':'is.null', 'limit':'1000'})
     grouped = {}
@@ -746,6 +770,12 @@ def scheduled_analysis(day=None):
         except (requests.RequestException, RuntimeError, ValueError, KeyError) as exc:
             errors.append(f'{code}: {str(exc)[:120]}')
     save_predictions(records)
+    if events:
+        try:
+            filled = fill_missing_prematch_odds(events)
+            errors.append(f'Informare: {filled} cote lipsă completate înainte de meci.')
+        except (requests.RequestException, RuntimeError, ValueError, KeyError) as exc:
+            errors.append('Completarea cotelor lipsă a eșuat: ' + str(exc)[:120])
     return len(records), errors
 
 def show_automatic_journal():
@@ -776,14 +806,42 @@ def show_automatic_journal():
                 st.caption(f"{len(priced)} selecții cu cote, miză egală de 1 unitate. Nu reprezintă pariuri plasate efectiv.")
             else:
                 st.info('Nu există încă selecții soluționate cu cote pre-meci salvate pentru calculul ROI.')
+        st.subheader('📈 Validare pe cote pre-meci — simulare, fără bani reali')
+        st.caption('Fiecare selecție este simulată separat cu miză fixă. GG și Peste 2,5 pe același meci sunt corelate. Nu sunt incluse selecțiile fără cote sau fără rezultat.')
+        sim = df.copy()
+        sim['odds'] = pd.to_numeric(sim['odds'], errors='coerce')
+        sim['v4_probability'] = pd.to_numeric(sim['v4_probability'], errors='coerce')
+        sim['v5_probability'] = pd.to_numeric(sim['v5_probability'], errors='coerce')
+        sim = sim[sim['result'].isin(['WIN', 'LOSS']) & (sim['odds'] > 1)]
+        min_odd = st.number_input('Cotă minimă (simulare)', min_value=1.01, max_value=10.0, value=1.60, step=0.05, key='validation_min_odd')
+        min_prob = st.slider('Probabilitate minimă V4 (%) — simulare', 0, 95, 55, key='validation_min_prob')
+        max_gap = st.slider('Diferență maximă V4–V5 (pp) — simulare', 0, 40, 12, key='validation_gap')
+        sim = sim[(sim['odds'] >= min_odd) & (sim['v4_probability'] >= min_prob) &
+                  ((sim['v4_probability'] - sim['v5_probability']).abs() <= max_gap)].copy()
+        if sim.empty:
+            st.info('Nu există încă selecții finalizate cu cote care respectă aceste filtre. Nu completa cote retrospectiv.')
+        else:
+            sim['Profit simulat (unități)'] = sim.apply(
+                lambda r: r['odds'] - 1 if r['result'] == 'WIN' else -1, axis=1)
+            st.metric('Selecții evaluate cu cote', len(sim))
+            st.metric('Profit simulat (unități)', f"{sim['Profit simulat (unități)'].sum():+.2f}")
+            st.metric('ROI simulat', f"{100*sim['Profit simulat (unități)'].mean():+.1f}%")
+            st.metric('Rată câștig', f"{100*(sim['result']=='WIN').mean():.1f}%")
+            by_market = sim.groupby('market').agg(
+                Selectii=('result', 'size'),
+                Castigate=('result', lambda x: int((x == 'WIN').sum())),
+                Profit_unitati=('Profit simulat (unități)', 'sum'),
+                ROI_pct=('Profit simulat (unități)', lambda x: round(100*x.mean(), 1)))
+            st.dataframe(by_market.reset_index(), hide_index=True, use_container_width=True)
+            st.caption('Filtrele sunt exploratorii; pentru validare credibilă stabilește-le înainte de următoarele meciuri și nu le ajusta după rezultate.')
         st.dataframe(df, hide_index=True, use_container_width=True)
         st.download_button('Exportă jurnalul (opțional)',df.to_csv(index=False).encode('utf-8-sig'),'v9_jurnal.csv','text/csv')
     except (requests.RequestException, RuntimeError, ValueError) as exc:
         st.error(f'Jurnal indisponibil: {exc}')
 
 def main():
-    st.set_page_config(page_title='Football Analyzer V9.8.1', page_icon='⚽', layout='wide')
-    st.title('⚽ Football Analyzer V9.8.1 — GG & Peste 2,5')
+    st.set_page_config(page_title='Football Analyzer V9.8.2', page_icon='⚽', layout='wide')
+    st.title('⚽ Football Analyzer V9.8.2 — GG & Peste 2,5')
     st.caption('Toate competițiile disponibile în abonamentul API; catalogul de evenimente PropLine este actualizat automat la preluarea cotelor. Predicțiile nu garantează câștiguri.')
     providers = []
     if KEY:
